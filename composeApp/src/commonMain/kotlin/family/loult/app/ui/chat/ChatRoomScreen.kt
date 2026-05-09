@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -182,10 +182,10 @@ private fun ChatRoomContent(
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(
+            itemsIndexed(
                 items = visibleMessages.asReversed(),
-                key = ::messageKey,
-            ) { message ->
+                key = { index, message -> messageKey(message, index) },
+            ) { _, message ->
                 MessageRow(
                     message,
                     previewImages = previewImages,
@@ -209,11 +209,11 @@ private fun ChatRoomContent(
     }
 }
 
-private fun messageKey(message: family.loult.app.domain.model.ChatMessage): String = when (message) {
-    is family.loult.app.domain.model.ChatMessage.Text -> "t-${message.date.toBits()}-${message.from.userId}"
-    is family.loult.app.domain.model.ChatMessage.Bot -> "b-${message.date.toBits()}-${message.from.userId}"
-    is family.loult.app.domain.model.ChatMessage.Me -> "m-${message.date.toBits()}-${message.from.userId}"
-    is family.loult.app.domain.model.ChatMessage.System -> "s-${message.date.toBits()}-${message.text.hashCode()}"
+private fun messageKey(message: family.loult.app.domain.model.ChatMessage, index: Int): String = when (message) {
+    is family.loult.app.domain.model.ChatMessage.Text -> "t-${message.date.toBits()}-${message.from.userId}-$index"
+    is family.loult.app.domain.model.ChatMessage.Bot -> "b-${message.date.toBits()}-${message.from.userId}-$index"
+    is family.loult.app.domain.model.ChatMessage.Me -> "m-${message.date.toBits()}-${message.from.userId}-$index"
+    is family.loult.app.domain.model.ChatMessage.System -> "s-${message.date.toBits()}-${message.text.hashCode()}-$index"
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
