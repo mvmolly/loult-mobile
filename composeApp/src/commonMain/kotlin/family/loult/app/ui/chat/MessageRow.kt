@@ -54,6 +54,7 @@ fun MessageRow(
     onUserClick: (LoultUser) -> Unit = {},
     onToggleMute: (LoultUser) -> Unit = {},
     onCopyText: (String) -> Unit = {},
+    onAttack: (LoultUser) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val sender: LoultUser? = when (message) {
@@ -72,13 +73,13 @@ fun MessageRow(
             verticalAlignment = Alignment.Top,
         ) {
             when (message) {
-                is ChatMessage.Text -> AvatarLine(message.from, onUserClick) {
+                is ChatMessage.Text -> AvatarLine(message.from, onUserClick, onAttack) {
                     ChatBody(message.from, message.body, previewImages = previewImages, onUserClick = onUserClick, onCopyText = onCopyText)
                 }
-                is ChatMessage.Bot -> AvatarLine(message.from, onUserClick) {
+                is ChatMessage.Bot -> AvatarLine(message.from, onUserClick, onAttack) {
                     ChatBody(message.from, message.body, italic = true, previewImages = previewImages, onUserClick = onUserClick, onCopyText = onCopyText)
                 }
-                is ChatMessage.Me -> AvatarLine(message.from, onUserClick) { ActionBody(message.from, message.body, onCopyText = onCopyText) }
+                is ChatMessage.Me -> AvatarLine(message.from, onUserClick, onAttack) { ActionBody(message.from, message.body, onCopyText = onCopyText) }
                 is ChatMessage.System -> SystemLine(message.text, message.kind)
             }
         }
@@ -127,12 +128,13 @@ private fun MuteSwipeBackground(muted: Boolean, progress: Float) {
 private fun AvatarLine(
     from: LoultUser,
     onUserClick: (LoultUser) -> Unit,
+    onAttack: (LoultUser) -> Unit,
     content: @Composable () -> Unit,
 ) {
     PokemonAvatar(
         img = from.img,
         size = AvatarSize,
-        modifier = Modifier.clickable { onUserClick(from) },
+        modifier = Modifier.clickable { onAttack(from) },
     )
     Spacer(Modifier.width(AvatarGap))
     Column(
@@ -207,7 +209,11 @@ private fun BnlImagePreview(url: String) {
 }
 
 @Composable
-private fun ActionBody(from: LoultUser, body: String, onCopyText: (String) -> Unit = {}) {
+private fun ActionBody(
+    from: LoultUser,
+    body: String,
+    onCopyText: (String) -> Unit = {},
+) {
     val text = "* ${from.name} $body"
     Text(
         text = text,

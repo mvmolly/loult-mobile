@@ -106,6 +106,12 @@ fun ChatRoomScreen() {
             clipboard.setText(AnnotatedString(body))
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         },
+        onAttack = { user ->
+            if (!user.isYou) {
+                viewModel.attack(user.name)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        },
     )
 }
 
@@ -125,6 +131,7 @@ private fun ChatRoomContent(
     onUserClick: (family.loult.app.domain.model.LoultUser) -> Unit,
     onToggleUserMute: (family.loult.app.domain.model.LoultUser) -> Unit,
     onCopyText: (String) -> Unit,
+    onAttack: (family.loult.app.domain.model.LoultUser) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -186,6 +193,7 @@ private fun ChatRoomContent(
                     onUserClick = onUserClick,
                     onToggleMute = onToggleUserMute,
                     onCopyText = onCopyText,
+                    onAttack = onAttack,
                 )
             }
         }

@@ -52,6 +52,15 @@ class ChatViewModel(
         _composerText.value = "/mp ${name.lowercase()} : "
     }
 
+    /** Send an attack against the given pokemon. `order` distinguishes
+     *  multiple users sharing the same name; null lets the server pick. */
+    fun attack(name: String, order: Int? = null) {
+        val target = name.lowercase().ifBlank { return }
+        viewModelScope.launch {
+            repository.send(OutgoingMessage.Attack(target = target, order = order))
+        }
+    }
+
     fun sendText(text: String) {
         if (text.isBlank()) return
         val trimmed = text.trim()
