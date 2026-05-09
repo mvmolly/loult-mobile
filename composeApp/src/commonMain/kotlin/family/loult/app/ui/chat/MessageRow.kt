@@ -2,6 +2,7 @@ package family.loult.app.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
@@ -51,6 +53,7 @@ fun MessageRow(
     muted: Boolean = false,
     onUserClick: (LoultUser) -> Unit = {},
     onToggleMute: (LoultUser) -> Unit = {},
+    onCopyText: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val sender: LoultUser? = when (message) {
@@ -70,12 +73,12 @@ fun MessageRow(
         ) {
             when (message) {
                 is ChatMessage.Text -> AvatarLine(message.from, onUserClick) {
-                    ChatBody(message.from, message.body, previewImages = previewImages, onUserClick = onUserClick)
+                    ChatBody(message.from, message.body, previewImages = previewImages, onUserClick = onUserClick, onCopyText = onCopyText)
                 }
                 is ChatMessage.Bot -> AvatarLine(message.from, onUserClick) {
-                    ChatBody(message.from, message.body, italic = true, previewImages = previewImages, onUserClick = onUserClick)
+                    ChatBody(message.from, message.body, italic = true, previewImages = previewImages, onUserClick = onUserClick, onCopyText = onCopyText)
                 }
-                is ChatMessage.Me -> AvatarLine(message.from, onUserClick) { ActionBody(message.from, message.body) }
+                is ChatMessage.Me -> AvatarLine(message.from, onUserClick) { ActionBody(message.from, message.body, onCopyText = onCopyText) }
                 is ChatMessage.System -> SystemLine(message.text, message.kind)
             }
         }
@@ -147,6 +150,7 @@ private fun ChatBody(
     italic: Boolean = false,
     previewImages: Boolean,
     onUserClick: (LoultUser) -> Unit,
+    onCopyText: (String) -> Unit = {},
 ) {
     Row(
         verticalAlignment = Alignment.Bottom,
@@ -173,6 +177,9 @@ private fun ChatBody(
         text = annotated,
         style = if (italic) style.copy(fontStyle = FontStyle.Italic) else style,
         color = if (body.startsWith(">")) LoultPalette.greentext else MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.pointerInput(body) {
+            detectTapGestures(onLongPress = { onCopyText(body) })
+        },
     )
     if (previewImages) {
         BnlImageRegex.findAll(body).forEach { match ->
@@ -200,11 +207,15 @@ private fun BnlImagePreview(url: String) {
 }
 
 @Composable
-private fun ActionBody(from: LoultUser, body: String) {
+private fun ActionBody(from: LoultUser, body: String, onCopyText: (String) -> Unit = {}) {
+    val text = "* ${from.name} $body"
     Text(
-        text = "* ${from.name} $body",
+        text = text,
         style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
         color = MaterialTheme.colorScheme.tertiary,
+        modifier = Modifier.pointerInput(text) {
+            detectTapGestures(onLongPress = { onCopyText(text) })
+        },
     )
 }
 

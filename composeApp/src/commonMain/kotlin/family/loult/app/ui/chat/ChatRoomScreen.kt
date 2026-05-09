@@ -29,7 +29,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import family.loult.app.domain.model.ConnectionState
@@ -82,6 +86,9 @@ fun ChatRoomScreen() {
         )
     }
 
+    val clipboard = LocalClipboardManager.current
+    val haptics = LocalHapticFeedback.current
+
     ChatRoomContent(
         state = state,
         previewImages = previewImages,
@@ -95,6 +102,10 @@ fun ChatRoomScreen() {
         onOpenUsers = { showUsers = true },
         onUserClick = { user -> viewModel.startPrivateMessage(user.name) },
         onToggleUserMute = { user -> viewModel.toggleUserMute(user.userId) },
+        onCopyText = { body ->
+            clipboard.setText(AnnotatedString(body))
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        },
     )
 }
 
@@ -113,6 +124,7 @@ private fun ChatRoomContent(
     onOpenUsers: () -> Unit,
     onUserClick: (family.loult.app.domain.model.LoultUser) -> Unit,
     onToggleUserMute: (family.loult.app.domain.model.LoultUser) -> Unit,
+    onCopyText: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -173,6 +185,7 @@ private fun ChatRoomContent(
                     muted = false,
                     onUserClick = onUserClick,
                     onToggleMute = onToggleUserMute,
+                    onCopyText = onCopyText,
                 )
             }
         }
