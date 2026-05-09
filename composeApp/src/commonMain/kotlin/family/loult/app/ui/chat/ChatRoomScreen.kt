@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -91,6 +90,7 @@ fun ChatRoomScreen() {
 
     ChatRoomContent(
         state = state,
+        messages = viewModel.messages,
         previewImages = previewImages,
         mutedUserIds = mutedUserIds,
         composerText = composerText,
@@ -119,6 +119,7 @@ fun ChatRoomScreen() {
 @Composable
 private fun ChatRoomContent(
     state: RoomState,
+    messages: List<family.loult.app.domain.model.ChatMessage>,
     previewImages: Boolean,
     mutedUserIds: Set<String>,
     composerText: String,
@@ -148,20 +149,9 @@ private fun ChatRoomContent(
         val density = LocalDensity.current
         val imeBottom = WindowInsets.ime.getBottom(density)
 
-        val visibleMessages = remember(state.messages, mutedUserIds) {
-            if (mutedUserIds.isEmpty()) state.messages
-            else state.messages.filter { m ->
-                when (m) {
-                    is family.loult.app.domain.model.ChatMessage.Text -> m.from.userId !in mutedUserIds
-                    is family.loult.app.domain.model.ChatMessage.Bot -> m.from.userId !in mutedUserIds
-                    is family.loult.app.domain.model.ChatMessage.Me -> m.from.userId !in mutedUserIds
-                    is family.loult.app.domain.model.ChatMessage.System -> true
-                }
-            }
-        }
-
-        LaunchedEffect(visibleMessages.size) {
-            if (visibleMessages.isNotEmpty() &&
+        val messageCount = messages.size
+        LaunchedEffect(messageCount) {
+            if (messageCount > 0 &&
                 listState.firstVisibleItemIndex <= 3 &&
                 !listState.isScrollInProgress
             ) {
@@ -169,7 +159,7 @@ private fun ChatRoomContent(
             }
         }
         LaunchedEffect(imeBottom) {
-            if (visibleMessages.isNotEmpty() && listState.firstVisibleItemIndex <= 3) {
+            if (messageCount > 0 && listState.firstVisibleItemIndex <= 3) {
                 listState.scrollToItem(0)
             }
         }
@@ -182,10 +172,16 @@ private fun ChatRoomContent(
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            itemsIndexed(
-                items = visibleMessages.asReversed(),
-                key = { index, message -> messageKey(message, index) },
-            ) { _, message ->
+            // Index from the end (reverseLayout) so item 0 is the newest.
+            // Reading messages[i] inside the lambda only registers a snapshot
+            // read for the slot we actually render — appending at the tail
+            // doesn't invalidate previously composed rows.
+            items(
+                count = messageCount,
+                key = { i -> messageKey(messages[messageCount - 1 - i], messageCount - 1 - i) },
+            ) { i ->
+                val message = messages[messageCount - 1 - i]
+                if (message.isHiddenBy(mutedUserIds)) return@items
                 MessageRow(
                     message,
                     previewImages = previewImages,
@@ -214,6 +210,16 @@ private fun messageKey(message: family.loult.app.domain.model.ChatMessage, index
     is family.loult.app.domain.model.ChatMessage.Bot -> "b-${message.date.toBits()}-${message.from.userId}-$index"
     is family.loult.app.domain.model.ChatMessage.Me -> "m-${message.date.toBits()}-${message.from.userId}-$index"
     is family.loult.app.domain.model.ChatMessage.System -> "s-${message.date.toBits()}-${message.text.hashCode()}-$index"
+}
+
+private fun family.loult.app.domain.model.ChatMessage.isHiddenBy(muted: Set<String>): Boolean {
+    if (muted.isEmpty()) return false
+    return when (this) {
+        is family.loult.app.domain.model.ChatMessage.Text -> from.userId in muted
+        is family.loult.app.domain.model.ChatMessage.Bot -> from.userId in muted
+        is family.loult.app.domain.model.ChatMessage.Me -> from.userId in muted
+        is family.loult.app.domain.model.ChatMessage.System -> false
+    }
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)

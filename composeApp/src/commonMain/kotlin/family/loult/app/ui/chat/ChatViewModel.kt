@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import family.loult.app.data.net.OutgoingMessage
 import family.loult.app.data.settings.LoultSettings
 import family.loult.app.data.upload.BnlUploader
+import family.loult.app.domain.model.ChatMessage
 import family.loult.app.domain.model.RoomState
 import family.loult.app.domain.repo.ChatRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,10 @@ class ChatViewModel(
 ) : ViewModel() {
 
     val state: StateFlow<RoomState> = repository.state
+
+    /** Compose-aware chat log. Reading this inside a composable registers a
+     *  snapshot read so only readers of the affected slot recompose. */
+    val messages: List<ChatMessage> get() = repository.messages
 
     private val _cookie = MutableStateFlow(settings.cookie)
     val cookie: StateFlow<String?> = _cookie.asStateFlow()

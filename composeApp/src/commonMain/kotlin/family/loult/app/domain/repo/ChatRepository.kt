@@ -1,12 +1,12 @@
 package family.loult.app.domain.repo
 
+import androidx.compose.runtime.mutableStateListOf
 import family.loult.app.data.net.IncomingMessage
 import family.loult.app.data.net.LoultEvent
 import family.loult.app.data.net.LoultWebSocketClient
 import family.loult.app.data.net.OutgoingMessage
 import family.loult.app.data.net.WireProfile
 import family.loult.app.data.net.WireUser
-import family.loult.app.data.net.WireUserParams
 import family.loult.app.data.settings.LoultSettings
 import family.loult.app.domain.model.ChatMessage
 import family.loult.app.domain.model.ConnectionState
@@ -23,9 +23,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** How far back to look when stamping an audio_id onto its paired text
+ *  message. The audio event always arrives shortly after the text it
+ *  voices, so a small window is enough and keeps the scan O(1) regardless
+ *  of how long the chat has been running. */
+private const val AUDIO_STAMP_LOOKBACK = 30
+
 /**
- * Owns the WebSocket lifecycle and folds incoming events into a RoomState
- * StateFlow. Read-only for M1; the surface already supports send().
+ * Owns the WebSocket lifecycle. Connection / user state lives in a tiny
+ * RoomState StateFlow; the chat log lives in its own SnapshotStateList so
+ * appends are O(1) amortized and Compose readers (LazyColumn) get
+ * granular invalidation instead of paying an O(n) StateFlow equality check
+ * on every incoming message.
  *
  * Reconnect strategy: capped exponential backoff (1, 2, 4, 8, max 30s).
  */
@@ -40,8 +49,15 @@ class ChatRepository(
         // Restore persisted mute on construction.
         tts.setMuted(settings.muted)
     }
+
     private val _state = MutableStateFlow(RoomState())
     val state: StateFlow<RoomState> = _state.asStateFlow()
+
+    /** Compose-aware list. Reads inside a composable register a snapshot
+     *  read; mutations only invalidate the readers that observed the
+     *  affected slot. Exposed as a plain List<T> so callers can't mutate it. */
+    private val _messages = mutableStateListOf<ChatMessage>()
+    val messages: List<ChatMessage> get() = _messages
 
     private var connectJob: Job? = null
 
@@ -78,6 +94,7 @@ class ChatRepository(
      */
     fun reconnect(channel: String = "") {
         _state.value = RoomState(connection = ConnectionState.Connecting)
+        _messages.clear()
         connect(channel)
     }
 
@@ -130,61 +147,41 @@ class ChatRepository(
                     isYou = msg.params.you,
                 )
                 _state.update { state ->
-                    state.copy(
-                        users = (state.users + u).distinctBy { it.userId },
-                        messages = state.messages + ChatMessage.System(
-                            date = msg.date,
-                            text = "Un ${u.name} ${u.adjective} apparaît !",
-                            kind = ChatMessage.System.Kind.Connect,
-                        ),
-                    )
+                    state.copy(users = (state.users + u).distinctBy { it.userId })
                 }
+                _messages.add(
+                    ChatMessage.System(
+                        date = msg.date,
+                        text = "Un ${u.name} ${u.adjective} apparaît !",
+                        kind = ChatMessage.System.Kind.Connect,
+                    )
+                )
             }
             is IncomingMessage.Disconnect -> {
+                val gone = _state.value.users.firstOrNull { it.userId == msg.userid }
+                val text = if (gone != null) "Le ${gone.name} ${gone.adjective} s'enfuit !"
+                else "Quelqu'un s'enfuit !"
                 _state.update { state ->
-                    val gone = state.users.firstOrNull { it.userId == msg.userid }
-                    val text = if (gone != null) "Le ${gone.name} ${gone.adjective} s'enfuit !"
-                    else "Quelqu'un s'enfuit !"
-                    state.copy(
-                        users = state.users.filterNot { it.userId == msg.userid },
-                        messages = state.messages + ChatMessage.System(msg.date, text, ChatMessage.System.Kind.Disconnect),
-                    )
+                    state.copy(users = state.users.filterNot { it.userId == msg.userid })
                 }
+                _messages.add(ChatMessage.System(msg.date, text, ChatMessage.System.Kind.Disconnect))
             }
             is IncomingMessage.Msg -> {
-                _state.update { state ->
-                    val from = state.users.firstOrNull { it.userId == msg.userid } ?: return@update state
-                    state.copy(messages = state.messages + ChatMessage.Text(msg.date, from, decodeEntities(msg.msg)))
-                }
+                val from = _state.value.users.firstOrNull { it.userId == msg.userid } ?: return
+                _messages.add(ChatMessage.Text(msg.date, from, decodeEntities(msg.msg)))
             }
             is IncomingMessage.Bot -> {
-                _state.update { state ->
-                    val from = state.users.firstOrNull { it.userId == msg.userid } ?: return@update state
-                    state.copy(messages = state.messages + ChatMessage.Bot(msg.date, from, decodeEntities(msg.msg)))
-                }
+                val from = _state.value.users.firstOrNull { it.userId == msg.userid } ?: return
+                _messages.add(ChatMessage.Bot(msg.date, from, decodeEntities(msg.msg)))
             }
             is IncomingMessage.Me -> {
-                _state.update { state ->
-                    val from = state.users.firstOrNull { it.userId == msg.userid } ?: return@update state
-                    state.copy(messages = state.messages + ChatMessage.Me(msg.date, from, decodeEntities(msg.msg)))
-                }
+                val from = _state.value.users.firstOrNull { it.userId == msg.userid } ?: return
+                _messages.add(ChatMessage.Me(msg.date, from, decodeEntities(msg.msg)))
             }
             is IncomingMessage.PrivateMsg -> handlePrivateMsg(msg)
             is IncomingMessage.Audio -> {
                 val sender = msg.effectiveSenderId
-                if (sender != null) {
-                    _state.update { state ->
-                        val updated = state.messages.toMutableList()
-                        val idx = updated.indexOfLast {
-                            it is ChatMessage.Text && it.from.userId == sender && it.audioId == null
-                        }
-                        if (idx >= 0) {
-                            val original = updated[idx] as ChatMessage.Text
-                            updated[idx] = original.copy(audioId = msg.audioId)
-                        }
-                        state.copy(messages = updated)
-                    }
-                }
+                if (sender != null) stampAudioId(sender, msg.audioId)
                 // Speak this message's TTS unless globally muted, or the sender
                 // is on the per-user mute set (server bots count too).
                 if (!settings.muted && msg.effectiveSenderId !in mutedUserIds) {
@@ -194,9 +191,7 @@ class ChatRepository(
             is IncomingMessage.Attack -> {
                 val text = formatAttack(msg, _state.value)
                 if (text != null) {
-                    _state.update { state ->
-                        state.copy(messages = state.messages + ChatMessage.System(msg.date, text, ChatMessage.System.Kind.AttackEvent))
-                    }
+                    _messages.add(ChatMessage.System(msg.date, text, ChatMessage.System.Kind.AttackEvent))
                 }
             }
             is IncomingMessage.Antiflood -> {
@@ -205,30 +200,22 @@ class ChatRepository(
                     "banned" -> "Banni temporairement pour flood." to ChatMessage.System.Kind.AntifloodBanned
                     else -> return
                 }
-                _state.update {
-                    it.copy(
-                        flooded = msg.event == "banned",
-                        messages = it.messages + ChatMessage.System(msg.date, text, kind),
-                    )
-                }
+                _state.update { it.copy(flooded = msg.event == "banned") }
+                _messages.add(ChatMessage.System(msg.date, text, kind))
             }
             is IncomingMessage.Wait -> {
-                _state.update {
-                    it.copy(
-                        waitUntil = msg.date,
-                        messages = it.messages + ChatMessage.System(
-                            date = msg.date,
-                            text = "La connection est en cours. Concentrez-vous quelques instants.",
-                            kind = ChatMessage.System.Kind.Wait,
-                        ),
+                _state.update { it.copy(waitUntil = msg.date) }
+                _messages.add(
+                    ChatMessage.System(
+                        date = msg.date,
+                        text = "La connection est en cours. Concentrez-vous quelques instants.",
+                        kind = ChatMessage.System.Kind.Wait,
                     )
-                }
+                )
             }
             is IncomingMessage.Notification -> {
                 msg.msg?.let { body ->
-                    _state.update {
-                        it.copy(messages = it.messages + ChatMessage.System(msg.date, decodeEntities(body), ChatMessage.System.Kind.Notification))
-                    }
+                    _messages.add(ChatMessage.System(msg.date, decodeEntities(body), ChatMessage.System.Kind.Notification))
                 }
             }
             is IncomingMessage.CookieChange -> {
@@ -236,6 +223,22 @@ class ChatRepository(
             }
             is IncomingMessage.Backlog -> handleBacklog(msg)
             is IncomingMessage.Inventory -> Unit
+        }
+    }
+
+    /** Find the most recent un-stamped Text message from this sender within
+     *  the lookback window and attach the audio id. Bounded so cost stays
+     *  constant as the chat log grows. */
+    private fun stampAudioId(senderId: String, audioId: String) {
+        val list = _messages
+        val end = list.size - 1
+        val start = (end - AUDIO_STAMP_LOOKBACK + 1).coerceAtLeast(0)
+        for (i in end downTo start) {
+            val m = list[i]
+            if (m is ChatMessage.Text && m.from.userId == senderId && m.audioId == null) {
+                list[i] = m.copy(audioId = audioId)
+                return
+            }
         }
     }
 
@@ -253,37 +256,34 @@ class ChatRepository(
             }
             else -> return
         }
-        _state.update { state ->
-            state.copy(messages = state.messages + ChatMessage.System(msg.date, text, kind))
-        }
+        _messages.add(ChatMessage.System(msg.date, text, kind))
     }
 
     private fun handleBacklog(backlog: IncomingMessage.Backlog) {
         if (backlog.msgs.isEmpty()) return
-        _state.update { state ->
-            val newMessages = backlog.msgs.mapNotNull { entry ->
-                val from = state.users.firstOrNull { it.userId == entry.userid }
-                    ?: entry.user?.let {
-                        LoultUser(
-                            userId = entry.userid,
-                            name = it.name,
-                            adjective = it.adjective,
-                            color = it.color,
-                            img = it.img,
-                            profile = null,
-                            isYou = it.you,
-                        )
-                    }
-                    ?: return@mapNotNull null
-                val body = decodeEntities(entry.msg)
-                when (entry.msgType) {
-                    "me" -> ChatMessage.Me(entry.date, from, body)
-                    "bot" -> ChatMessage.Bot(entry.date, from, body)
-                    else -> ChatMessage.Text(entry.date, from, body)
+        val users = _state.value.users
+        val newMessages = backlog.msgs.mapNotNull { entry ->
+            val from = users.firstOrNull { it.userId == entry.userid }
+                ?: entry.user?.let {
+                    LoultUser(
+                        userId = entry.userid,
+                        name = it.name,
+                        adjective = it.adjective,
+                        color = it.color,
+                        img = it.img,
+                        profile = null,
+                        isYou = it.you,
+                    )
                 }
+                ?: return@mapNotNull null
+            val body = decodeEntities(entry.msg)
+            when (entry.msgType) {
+                "me" -> ChatMessage.Me(entry.date, from, body)
+                "bot" -> ChatMessage.Bot(entry.date, from, body)
+                else -> ChatMessage.Text(entry.date, from, body)
             }
-            state.copy(messages = newMessages + state.messages)
         }
+        _messages.addAll(0, newMessages)
     }
 
     private fun formatAttack(msg: IncomingMessage.Attack, state: RoomState): String? {
