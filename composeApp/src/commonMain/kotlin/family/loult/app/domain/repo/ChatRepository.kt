@@ -188,7 +188,7 @@ class ChatRepository(
                 // Speak this message's TTS unless globally muted, or the sender
                 // is on the per-user mute set (server bots count too).
                 if (!settings.muted && msg.effectiveSenderId !in mutedUserIds) {
-                    tts.enqueue(msg.audioId)
+                    tts.play(msg.audioId)
                 }
             }
             is IncomingMessage.Attack -> {

@@ -1,31 +1,34 @@
 package family.loult.app.shared.audio
 
 import android.content.Context
-import android.net.Uri
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsBytes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 
 /**
- * Android TtsPlayer backed by ExoPlayer. Audio clips are fetched through the
- * shared (cookie-aware) Ktor HttpClient and cached as files in the app's
- * cacheDir, then enqueued as ExoPlayer MediaItems. ExoPlayer is responsible
- * for sequential playback; we only need to nudge it back to playing when its
- * playlist has fully drained between arrivals.
+ * Android TtsPlayer that mirrors loult.family's mixing behaviour: every
+ * incoming clip spawns its own MediaPlayer so concurrent voices overlap
+ * instead of queueing.
+ *
+ * Each clip's lifecycle is independent:
+ *   1. Download bytes through the shared (cookie-aware) Ktor client on IO.
+ *   2. Write to a unique cache file.
+ *   3. Hand off to the main thread, build a MediaPlayer, prepareAsync.
+ *   4. On completion / error, release the player and delete the file.
+ *
+ * Mute hard-stops every active player, drops in-flight downloads, and
+ * deletes any clip that lands after the toggle.
  */
 class AndroidTtsPlayer(
     private val context: Context,
@@ -33,92 +36,82 @@ class AndroidTtsPlayer(
 ) : TtsPlayer {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val downloads = Channel<String>(capacity = Channel.UNLIMITED)
     private val main = Handler(Looper.getMainLooper())
 
-    // ExoPlayer must be created and used on the main thread.
-    private lateinit var player: ExoPlayer
-
     @Volatile private var muted = false
-    private val downloader: Job
 
-    init {
-        main.post {
-            player = ExoPlayer.Builder(context).build().apply {
-                playWhenReady = true
-            }
-        }
-        downloader = scope.launch {
-            for (audioId in downloads) {
-                if (muted) continue
-                runCatching { downloadAndQueue(audioId) }
-                    .onFailure { it.printStackTrace() }
-            }
-        }
-    }
+    // Touched only from the main thread (MediaPlayer callbacks fire on the
+    // looper of the thread the instance was constructed on, which is main).
+    private val active = mutableListOf<MediaPlayer>()
 
-    override fun enqueue(audioId: String) {
+    override fun play(audioId: String) {
         if (muted) return
-        downloads.trySend(audioId)
+        scope.launch {
+            runCatching { downloadAndPlay(audioId) }
+                .onFailure { it.printStackTrace() }
+        }
     }
 
     override fun setMuted(muted: Boolean) {
         this.muted = muted
-        if (muted) {
-            main.post {
-                if (::player.isInitialized) {
-                    player.stop()
-                    player.clearMediaItems()
-                }
-            }
-        }
+        if (muted) main.post { stopAll() }
     }
 
     override fun release() {
-        downloads.close()
         scope.cancel()
-        main.post {
-            if (::player.isInitialized) player.release()
+        main.post { stopAll() }
+    }
+
+    private suspend fun downloadAndPlay(audioId: String) {
+        if (muted) return
+        val url = "https://loult.family/audio/$audioId/"
+        val bytes = httpClient.get(url).bodyAsBytes()
+        if (bytes.isEmpty() || muted) return
+        val file = File(context.cacheDir, "tts-${UUID.randomUUID()}.bin")
+        file.writeBytes(bytes)
+        main.post { startPlayback(file) }
+    }
+
+    private fun startPlayback(file: File) {
+        if (muted) {
+            file.delete()
+            return
+        }
+        val mp = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            setOnPreparedListener { player ->
+                if (muted) cleanup(player, file) else player.start()
+            }
+            setOnCompletionListener { player -> cleanup(player, file) }
+            setOnErrorListener { player, _, _ ->
+                cleanup(player, file)
+                true
+            }
+        }
+        active += mp
+        runCatching {
+            mp.setDataSource(file.absolutePath)
+            mp.prepareAsync()
+        }.onFailure {
+            it.printStackTrace()
+            cleanup(mp, file)
         }
     }
 
-    private suspend fun downloadAndQueue(audioId: String) {
-        val url = "https://loult.family/audio/$audioId/"
-        val bytes = httpClient.get(url).bodyAsBytes()
-        if (bytes.isEmpty()) return
-        val file = File(context.cacheDir, "tts-${UUID.randomUUID()}.bin").apply {
-            writeBytes(bytes)
-            deleteOnExit()
-        }
-        main.post {
-            if (muted || !::player.isInitialized) return@post
-            val item = MediaItem.fromUri(Uri.fromFile(file))
-            val wasIdle = player.playbackState == Player.STATE_IDLE
-            val wasEnded = player.playbackState == Player.STATE_ENDED
-            val emptyQueue = player.mediaItemCount == 0
-            player.addMediaItem(item)
-            when {
-                // Cold start: nothing prepared yet → kick everything off.
-                wasIdle -> {
-                    player.prepare()
-                    player.playWhenReady = true
-                }
-                // Queue had drained and player parked at the end. Hop to the
-                // newly-added item and resume — otherwise ExoPlayer just sits
-                // at STATE_ENDED forever.
-                wasEnded -> {
-                    val newIndex = player.mediaItemCount - 1
-                    player.seekTo(newIndex, 0L)
-                    player.playWhenReady = true
-                }
-                emptyQueue -> {
-                    player.prepare()
-                    player.playWhenReady = true
-                }
-                // Otherwise the player is BUFFERING/READY/playing; ExoPlayer
-                // will auto-advance into our newly-appended item.
-                else -> Unit
-            }
-        }
+    private fun cleanup(player: MediaPlayer, file: File) {
+        active.remove(player)
+        runCatching { player.release() }
+        file.delete()
+    }
+
+    private fun stopAll() {
+        val snapshot = active.toList()
+        active.clear()
+        snapshot.forEach { runCatching { it.release() } }
     }
 }

@@ -5,16 +5,17 @@ package family.loult.app.shared.audio
  * event from the WebSocket gives us an `audio_id`; the corresponding clip
  * lives at `https://loult.family/audio/<id>/`.
  *
- * Implementations are expected to fetch and play sequentially, never
- * overlapping, mirroring the loult web client behaviour.
+ * Implementations play clips concurrently — voices that arrive while
+ * another is still speaking mix on top, mirroring the loult.family web
+ * client.
  */
 interface TtsPlayer {
-    /** Add an audio_id to the playback queue. No-op if currently muted. */
-    fun enqueue(audioId: String)
+    /** Fetch and play this audio clip. No-op if currently muted. */
+    fun play(audioId: String)
 
-    /** Mute toggle. Stops playback and clears the queue when set true. */
+    /** Mute toggle. Stops in-flight playback when set true. */
     fun setMuted(muted: Boolean)
 
-    /** Free the underlying player. Called when the app process is shutting down. */
+    /** Free the underlying resources. Called when the app process is shutting down. */
     fun release()
 }
