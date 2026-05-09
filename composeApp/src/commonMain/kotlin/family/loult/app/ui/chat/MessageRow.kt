@@ -1,20 +1,27 @@
 package family.loult.app.ui.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -26,6 +33,7 @@ import coil3.compose.AsyncImage
 import family.loult.app.domain.model.ChatMessage
 import family.loult.app.domain.model.LoultUser
 import family.loult.app.ui.components.PokemonAvatar
+import family.loult.app.ui.components.SwipeRightToTrigger
 import family.loult.app.ui.theme.LoultPalette
 
 private val RowHorizontal = 16.dp
@@ -39,23 +47,75 @@ private val BnlImageRegex = Regex("""https://bnl\.loult\.family/media/content/im
 fun MessageRow(
     message: ChatMessage,
     previewImages: Boolean = true,
+    muted: Boolean = false,
     onUserClick: (LoultUser) -> Unit = {},
+    onToggleMute: (LoultUser) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = RowHorizontal),
-        verticalAlignment = Alignment.Top,
-    ) {
-        when (message) {
-            is ChatMessage.Text -> AvatarLine(message.from, onUserClick) {
-                ChatBody(message.from, message.body, previewImages = previewImages, onUserClick = onUserClick)
+    val sender: LoultUser? = when (message) {
+        is ChatMessage.Text -> message.from
+        is ChatMessage.Bot -> message.from
+        is ChatMessage.Me -> message.from
+        is ChatMessage.System -> null
+    }
+    val rowContent: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = RowHorizontal)
+                .alpha(if (muted) 0.4f else 1f),
+            verticalAlignment = Alignment.Top,
+        ) {
+            when (message) {
+                is ChatMessage.Text -> AvatarLine(message.from, onUserClick) {
+                    ChatBody(message.from, message.body, previewImages = previewImages, onUserClick = onUserClick)
+                }
+                is ChatMessage.Bot -> AvatarLine(message.from, onUserClick) {
+                    ChatBody(message.from, message.body, italic = true, previewImages = previewImages, onUserClick = onUserClick)
+                }
+                is ChatMessage.Me -> AvatarLine(message.from, onUserClick) { ActionBody(message.from, message.body) }
+                is ChatMessage.System -> SystemLine(message.text, message.kind)
             }
-            is ChatMessage.Bot -> AvatarLine(message.from, onUserClick) {
-                ChatBody(message.from, message.body, italic = true, previewImages = previewImages, onUserClick = onUserClick)
-            }
-            is ChatMessage.Me -> AvatarLine(message.from, onUserClick) { ActionBody(message.from, message.body) }
-            is ChatMessage.System -> SystemLine(message.text, message.kind)
         }
+    }
+
+    if (sender == null || sender.isYou) {
+        // System rows and your own messages: no swipe-to-mute.
+        Row(modifier = modifier.fillMaxWidth()) { rowContent() }
+        return
+    }
+
+    SwipeRightToTrigger(
+        modifier = modifier,
+        onTrigger = { onToggleMute(sender) },
+        background = { progress -> MuteSwipeBackground(muted = muted, progress = progress) },
+    ) {
+        rowContent()
+    }
+}
+
+@Composable
+private fun MuteSwipeBackground(muted: Boolean, progress: Float) {
+    val tint = if (muted) LoultPalette.info else LoultPalette.muted
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(tint.copy(alpha = 0.15f + 0.25f * progress))
+            .padding(horizontal = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (muted) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = if (muted) "Réactiver" else "Muet",
+            color = MaterialTheme.colorScheme.onBackground,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

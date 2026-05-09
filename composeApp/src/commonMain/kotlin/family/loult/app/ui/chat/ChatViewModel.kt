@@ -26,6 +26,9 @@ class ChatViewModel(
     private val _muted = MutableStateFlow(settings.muted)
     val muted: StateFlow<Boolean> = _muted.asStateFlow()
 
+    private val _mutedUserIds = MutableStateFlow(settings.mutedUserIds)
+    val mutedUserIds: StateFlow<Set<String>> = _mutedUserIds.asStateFlow()
+
     private val _previewImages = MutableStateFlow(settings.previewBnlImages)
     val previewImages: StateFlow<Boolean> = _previewImages.asStateFlow()
 
@@ -36,6 +39,7 @@ class ChatViewModel(
     val uploading: StateFlow<Boolean> = _uploading.asStateFlow()
 
     init {
+        repository.setMutedUserIds(settings.mutedUserIds)
         repository.connect(channel = "")
     }
 
@@ -85,6 +89,15 @@ class ChatViewModel(
     }
 
     fun toggleMute() = setMuted(!_muted.value)
+
+    fun toggleUserMute(userId: String) {
+        if (userId.isBlank()) return
+        val current = _mutedUserIds.value
+        val next = if (userId in current) current - userId else current + userId
+        settings.mutedUserIds = next
+        _mutedUserIds.value = next
+        repository.setMutedUserIds(next)
+    }
 
     /** Upload a file to BNL and post the resulting URL as a chat message. */
     fun uploadAndSendImage(bytes: ByteArray, filename: String) {

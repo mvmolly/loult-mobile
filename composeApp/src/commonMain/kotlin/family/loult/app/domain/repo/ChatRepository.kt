@@ -45,6 +45,10 @@ class ChatRepository(
 
     private var connectJob: Job? = null
 
+    /** User ids whose TTS should be silenced. Loaded from settings on first use
+     *  and kept in sync via [setMutedUserIds]. */
+    private var mutedUserIds: Set<String> = settings.mutedUserIds
+
     fun connect(channel: String = "") {
         connectJob?.cancel()
         connectJob = scope.launch {
@@ -81,6 +85,10 @@ class ChatRepository(
     fun setMuted(muted: Boolean) {
         settings.muted = muted
         tts.setMuted(muted)
+    }
+
+    fun setMutedUserIds(ids: Set<String>) {
+        mutedUserIds = ids
     }
 
     suspend fun send(message: OutgoingMessage) = client.sendCommand(message)
@@ -177,8 +185,11 @@ class ChatRepository(
                         state.copy(messages = updated)
                     }
                 }
-                // Speak this message's TTS unless muted (server bots count too).
-                if (!settings.muted) tts.enqueue(msg.audioId)
+                // Speak this message's TTS unless globally muted, or the sender
+                // is on the per-user mute set (server bots count too).
+                if (!settings.muted && msg.effectiveSenderId !in mutedUserIds) {
+                    tts.enqueue(msg.audioId)
+                }
             }
             is IncomingMessage.Attack -> {
                 val text = formatAttack(msg, _state.value)

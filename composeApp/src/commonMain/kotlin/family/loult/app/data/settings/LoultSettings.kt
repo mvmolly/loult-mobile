@@ -31,11 +31,24 @@ class LoultSettings(private val settings: Settings) {
         get() = settings.getBoolean(KEY_PREVIEW_BNL, true)
         set(value) { settings[KEY_PREVIEW_BNL] = value }
 
+    /** Per-user mute set (their TTS is silenced). Persisted as comma-separated ids. */
+    var mutedUserIds: Set<String>
+        get() = settings.getStringOrNull(KEY_MUTED_USERS)
+            ?.split(',')
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            ?: emptySet()
+        set(value) {
+            if (value.isEmpty()) settings.remove(KEY_MUTED_USERS)
+            else settings[KEY_MUTED_USERS] = value.joinToString(",")
+        }
+
     private companion object {
         const val KEY_COOKIE = "loult.cookie"
         const val KEY_THEME = "loult.theme"
         const val KEY_MUTED = "loult.muted"
         const val KEY_PREVIEW_BNL = "loult.preview.bnl"
+        const val KEY_MUTED_USERS = "loult.muted.users"
         const val DEFAULT_THEME = "bibw night sans"
     }
 }

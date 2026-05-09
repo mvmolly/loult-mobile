@@ -44,6 +44,7 @@ fun ChatRoomScreen() {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val cookie by viewModel.cookie.collectAsStateWithLifecycle()
     val muted by viewModel.muted.collectAsStateWithLifecycle()
+    val mutedUserIds by viewModel.mutedUserIds.collectAsStateWithLifecycle()
     val previewImages by viewModel.previewImages.collectAsStateWithLifecycle()
     val composerText by viewModel.composerText.collectAsStateWithLifecycle()
     val uploading by viewModel.uploading.collectAsStateWithLifecycle()
@@ -71,10 +72,12 @@ fun ChatRoomScreen() {
     if (showUsers) {
         UserListSheet(
             users = state.users,
+            mutedUserIds = mutedUserIds,
             onPickUser = { user ->
                 viewModel.startPrivateMessage(user.name)
                 showUsers = false
             },
+            onToggleMute = { user -> viewModel.toggleUserMute(user.userId) },
             onDismiss = { showUsers = false },
         )
     }
@@ -82,6 +85,7 @@ fun ChatRoomScreen() {
     ChatRoomContent(
         state = state,
         previewImages = previewImages,
+        mutedUserIds = mutedUserIds,
         composerText = composerText,
         uploading = uploading,
         onComposerChange = viewModel::setComposerText,
@@ -90,6 +94,7 @@ fun ChatRoomScreen() {
         onOpenSettings = { showSettings = true },
         onOpenUsers = { showUsers = true },
         onUserClick = { user -> viewModel.startPrivateMessage(user.name) },
+        onToggleUserMute = { user -> viewModel.toggleUserMute(user.userId) },
     )
 }
 
@@ -98,6 +103,7 @@ fun ChatRoomScreen() {
 private fun ChatRoomContent(
     state: RoomState,
     previewImages: Boolean,
+    mutedUserIds: Set<String>,
     composerText: String,
     uploading: Boolean,
     onComposerChange: (String) -> Unit,
@@ -106,6 +112,7 @@ private fun ChatRoomContent(
     onOpenSettings: () -> Unit,
     onOpenUsers: () -> Unit,
     onUserClick: (family.loult.app.domain.model.LoultUser) -> Unit,
+    onToggleUserMute: (family.loult.app.domain.model.LoultUser) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -122,8 +129,20 @@ private fun ChatRoomContent(
         val density = LocalDensity.current
         val imeBottom = WindowInsets.ime.getBottom(density)
 
-        LaunchedEffect(state.messages.size) {
-            if (state.messages.isNotEmpty() &&
+        val visibleMessages = remember(state.messages, mutedUserIds) {
+            if (mutedUserIds.isEmpty()) state.messages
+            else state.messages.filter { m ->
+                when (m) {
+                    is family.loult.app.domain.model.ChatMessage.Text -> m.from.userId !in mutedUserIds
+                    is family.loult.app.domain.model.ChatMessage.Bot -> m.from.userId !in mutedUserIds
+                    is family.loult.app.domain.model.ChatMessage.Me -> m.from.userId !in mutedUserIds
+                    is family.loult.app.domain.model.ChatMessage.System -> true
+                }
+            }
+        }
+
+        LaunchedEffect(visibleMessages.size) {
+            if (visibleMessages.isNotEmpty() &&
                 listState.firstVisibleItemIndex <= 3 &&
                 !listState.isScrollInProgress
             ) {
@@ -131,7 +150,7 @@ private fun ChatRoomContent(
             }
         }
         LaunchedEffect(imeBottom) {
-            if (state.messages.isNotEmpty() && listState.firstVisibleItemIndex <= 3) {
+            if (visibleMessages.isNotEmpty() && listState.firstVisibleItemIndex <= 3) {
                 listState.scrollToItem(0)
             }
         }
@@ -145,13 +164,15 @@ private fun ChatRoomContent(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(
-                items = state.messages.asReversed(),
+                items = visibleMessages.asReversed(),
                 key = ::messageKey,
             ) { message ->
                 MessageRow(
                     message,
                     previewImages = previewImages,
+                    muted = false,
                     onUserClick = onUserClick,
+                    onToggleMute = onToggleUserMute,
                 )
             }
         }
