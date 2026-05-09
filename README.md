@@ -1,37 +1,41 @@
 # loult-mobile
 
-An unofficial Android client for [loult.family](https://loult.family) — chat, pokémon, attacks, and overlapping TTS voices, in your pocket.
+Un client Android non officiel pour [loult.family](https://loult.family) — pour blablater, lancer des attaques et écouter les pokémons crier dans tes oreilles, depuis ton canapé.
 
-## Download
+## Télécharger
 
-Grab the latest debug APK from the [releases page](https://github.com/mvmolly/loult-mobile/releases/latest).
+L'APK le plus frais se trouve sur la [page des releases](https://github.com/mvmolly/loult-mobile/releases/latest).
 
-Every push to `main` builds a fresh APK and publishes it as `build-<n>`.
+Chaque push sur `main` déclenche une build et publie un nouveau `build-<n>`. Pas de Play Store, pas de signature, juste un APK debug à installer à la main (active "Sources inconnues" dans les réglages Android).
 
-## Features
+## Ce que ça fait
 
-- **Live chat** with the loult WebSocket protocol — text, `/me` actions, private messages (`/mp`), system events.
-- **Concurrent TTS playback** — voices mix on top of each other just like the web client.
-- **Pokémon avatars** with adjective, color, and tap-to-attack.
-- **Tap on a pokémon** → opens a private message draft for that user.
-- **Tap on the avatar** → fires an attack.
-- **Long-press a message** → copies it to the clipboard with a haptic buzz.
-- **Swipe right on a row** (chat or user list) → mute that user. Muted users are greyed out, their voices silenced, and their text hidden.
-- **Inline previews** for BNL image and video URLs.
-- **Image upload** through the `+` button in the composer.
-- **Cookie-based identity** — paste your loult cookie in settings to keep the same pokémon across sessions.
+- **Tchat en direct** via le WebSocket loult — messages, `/me`, messages privés (`/mp`), événements système.
+- **Voix qui se chevauchent** comme sur le site, parce qu'écouter un pokémon à la fois c'est trop calme.
+- **Avatars pokémon** avec couleur, adjectif, et tout le tralala.
+- **Tape sur le nom d'un pokémon** → ça prépare un `/mp` pour lui.
+- **Tape sur l'avatar** → tu l'attaques.
+- **Appui long sur un message** → c'est copié, ton téléphone vibre.
+- **Glisse à droite sur une ligne** (tchat ou liste des connectés) → tu mute. Le muet devient gris, sa voix se tait, ses messages disparaissent.
+- **Aperçus en ligne** pour les images et vidéos BNL.
+- **Upload d'images** via le `+` à côté du champ de saisie.
+- **Cookie loult** dans les réglages pour garder le même pokémon entre deux sessions.
 
-## Stack
+## Sous le capot
 
 - Kotlin Multiplatform (Compose Multiplatform 1.7.3, Material3)
-- Ktor 3 WebSockets + cookie-aware HTTP
-- ExoPlayer / Media3 for video previews
-- `MediaPlayer` per clip for the TTS mixer
-- Koin for DI, multiplatform-settings for persistence
+- Ktor 3 (WebSocket + HTTP avec gestion des cookies)
+- Media3 / ExoPlayer pour les previews vidéo
+- Un `MediaPlayer` par clip pour le mixeur de voix
+- Koin pour l'injection, multiplatform-settings pour la persistance
 
-## Build
+## Build local
 
 ```sh
 gradle :androidApp:assembleDebug
-# APK at androidApp/build/outputs/apk/debug/androidApp-debug.apk
+# APK : androidApp/build/outputs/apk/debug/androidApp-debug.apk
 ```
+
+## C'est quoi loult déjà ?
+
+Si tu lis ce README sans connaître loult, [va voir](https://loult.family). Si après ça t'as toujours pas compris, c'est probablement mieux comme ça.
