@@ -54,6 +54,7 @@ coil-gif = { module = "io.coil-kt.coil3:coil-gif", version.ref = "coil" }
 # Media3 (Android)
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "androidx-media3" }
 androidx-media3-common = { module = "androidx.media3:media3-common", version.ref = "androidx-media3" }
+androidx-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "androidx-media3" }
 
 # Koin
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
@@ -70,7 +71,7 @@ cmp = ["cmp-foundation", "cmp-material3", "cmp-resources", "cmp-runtime", "cmp-u
 ktor-common = ["ktor-client-core", "ktor-client-websockets", "ktor-client-contentNegotiation", "ktor-client-logging", "ktor-serialization-json"]
 coil = ["coil-compose", "coil-network-ktor3"]
 coil-android = ["coil-gif"]
-media3 = ["androidx-media3-exoplayer", "androidx-media3-common"]
+media3 = ["androidx-media3-exoplayer", "androidx-media3-common", "androidx-media3-ui"]
 koin = ["koin-core", "koin-compose", "koin-compose-viewmodel"]
 androidx-lifecycle = ["androidx-lifecycle-viewmodel", "androidx-lifecycle-runtime"]
 

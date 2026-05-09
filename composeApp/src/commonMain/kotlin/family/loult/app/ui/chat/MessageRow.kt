@@ -42,6 +42,7 @@ private val AvatarGap = 12.dp
 private val SystemIndent = RowHorizontal + AvatarSize + AvatarGap
 
 private val BnlImageRegex = Regex("""https://bnl\.loult\.family/media/content/image/[a-z0-9]+""")
+private val BnlVideoRegex = Regex("""https://bnl\.loult\.family/media/content/video/[a-z0-9]+""")
 
 @Composable
 fun MessageRow(
@@ -176,6 +177,9 @@ private fun ChatBody(
     if (previewImages) {
         BnlImageRegex.findAll(body).forEach { match ->
             BnlImagePreview(url = match.value)
+        }
+        BnlVideoRegex.findAll(body).forEach { match ->
+            BnlVideoPreview(url = match.value)
         }
     }
 }
